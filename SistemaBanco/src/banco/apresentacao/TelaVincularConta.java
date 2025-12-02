@@ -6,11 +6,10 @@ import banco.modelo.ContaInvestimento;
 import banco.negocio.GerenciadorClientes;
 import banco.negocio.GerenciadorContas;
 
+import javax.swing.event.DocumentListener;
+import javax.swing.event.DocumentEvent;
+import javax.swing.SwingUtilities;
 import java.text.DecimalFormat;
-import java.text.NumberFormat;
-
-import javax.swing.text.DefaultFormatterFactory;
-import javax.swing.text.NumberFormatter;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.FlowLayout;
@@ -36,13 +35,15 @@ public class TelaVincularConta extends JFrame {
     private CardLayout cardLayout; // Gerenciador de layout que alterna entre painéis
     
     // Campos para Conta Corrente
-    private JFormattedTextField txtCC_DepInicial, txtCC_Limite; // Campos de depósito inicial e limite
+    private JTextField txtCC_DepInicial, txtCC_Limite; // Campos de depósito inicial e limite
     
     // Campos para Conta Investimento
-    private JFormattedTextField txtCI_MontanteMinimo, txtCI_DepMinimo, txtCI_DepInicial; // Campos de montante mínimo, depósito mínimo e depósito inicial
+    private JTextField txtCI_MontanteMinimo, txtCI_DepMinimo, txtCI_DepInicial; // Campos de montante mínimo, depósito mínimo e depósito inicial
     
     // Botão de Ação
     private JButton btnVincular; // Botão para vincular a conta ao cliente
+    
+    private boolean isUpdating = false; // Flag para evitar loops de DocumentListener
 
     // Construtor da tela de vinculação de contas
     public TelaVincularConta(GerenciadorClientes gc, GerenciadorContas gco) {
@@ -87,8 +88,6 @@ public class TelaVincularConta extends JFrame {
         
         add(pnlCamposConta, BorderLayout.CENTER); // Adiciona ao centro
         
-        formatarMoeda(); // Configura os formatadores de moeda para os campos
-        
         // --- Painel Inferior (Botão) ---
         JPanel pnlBotoes = new JPanel(new FlowLayout(FlowLayout.CENTER)); // Layout centralizado para o botão
         
@@ -102,30 +101,59 @@ public class TelaVincularConta extends JFrame {
         atualizarCamposConta();
     }
     
-    // Configura e aplica o formatador de moeda/decimal para todos os JFormattedTextFields.
-    private void formatarMoeda() {
-        // Formato para exibição (R$ 1.000,00) - Não usado para input, mas boa prática
-        NumberFormat currency = NumberFormat.getCurrencyInstance(new java.util.Locale("pt", "BR")); // Formato de moeda brasileira
-        currency.setMaximumFractionDigits(2); // Máximo de 2 casas decimais
-        NumberFormatter currencyFormatter = new NumberFormatter(currency); // Formatter para moeda brasileira
-        currencyFormatter.setAllowsInvalid(false); // Não permite valores inválidos
-        currencyFormatter.setOverwriteMode(true); // Sobrescreve o valor ao digitar
+    // Formata o valor digitado no modo centavos para casas maiores
+    private void formatarEntradaValor(JTextField field) {
+        if (isUpdating) return; // Bloqueia se a atualização for interna
+        
+        // Limita o número máximo de dígitos para 14 (para evitar o estouro de Long)
+        final int MAX_DIGITOS = 14;
+        
+        // Remove tudo que não for dígito
+        String texto = field.getText().replaceAll("[^0-9]", "");
 
-        // Formato simples para entrada (ex: 1000,00) que será lido como Double
-        DecimalFormat decimalFormat = new DecimalFormat("#,##0.00"); // Formato decimal simples
-        NumberFormatter simpleFormatter = new NumberFormatter(decimalFormat); // Formatter para números decimais
-        simpleFormatter.setValueClass(Double.class); // Define a classe do valor como Double
-        simpleFormatter.setAllowsInvalid(false); // Não permite valores inválidos
+        // Lógica de Limitação de Input
+        if (texto.length() > MAX_DIGITOS) {
+            // Trunca o texto
+            texto = texto.substring(0, MAX_DIGITOS);
+        }
+        
+        // Lógica de limpeza e validação
+        if (texto.isEmpty()) {
+            // Lógica para limpar o campo
+            if (!field.getText().isEmpty()) {
+                isUpdating = true; // Ativa flag antes de mudar o texto
+                field.setText("");
+                isUpdating = false;
+            }
+            return;
+        }
+        
+        //Conversão e formatação segura devido a limitação
+        try {
+            // Pega o valor como um número inteiro (centavos)
+            long valorInteiro = Long.parseLong(texto);
+            // Converte para decimal (o formato 0.00)
+            double valorDecimal = valorInteiro / 100.0;
 
-        // Factory para aplicar o formatador (uso de NumberFormatter para input de valores)
-        DefaultFormatterFactory factory = new DefaultFormatterFactory(simpleFormatter, simpleFormatter, simpleFormatter);
+            // Formata o valor para a exibição no campo (Ex: 1,23)
+            DecimalFormat df = new DecimalFormat("#,##0.00");
+            String valorFormatado = df.format(valorDecimal);
 
-        // Aplica o formatador a todos os campos de valor
-        txtCC_DepInicial.setFormatterFactory(factory);
-        txtCC_Limite.setFormatterFactory(factory);
-        txtCI_MontanteMinimo.setFormatterFactory(factory);
-        txtCI_DepMinimo.setFormatterFactory(factory);
-        txtCI_DepInicial.setFormatterFactory(factory);
+            // Atualiza o campo com o valor formatado
+            if (!field.getText().equals(valorFormatado)) {
+                isUpdating = true; // Liga o flag antes da atualização
+                
+                // SetText é direto e a flag impede o re-trigger imediato
+                SwingUtilities.invokeLater(() -> {
+                    field.setText(valorFormatado);
+                    isUpdating = false; // Desliga o flag APÓS a operação
+                });
+            }
+        } catch (NumberFormatException e) {
+            isUpdating = true;
+            field.setText(""); // Limpa o campo em caso de falha crítica
+            isUpdating = false; // Desliga o flag APÓS a operação
+        }
     }
 
     // Carrega a lista de clientes do gerenciador para a JComboBox de clientes.
@@ -137,16 +165,26 @@ public class TelaVincularConta extends JFrame {
         }
     }
     
-    
     // Cria e retorna o painel com os campos específicos para Conta Corrente.
     // Retorna JPanel para Conta Corrente
     private JPanel criarPainelContaCorrente() {
         JPanel pnl = new JPanel(new GridLayout(3, 2, 5, 5)); // Layout de 3 linhas, 2 colunas
-        txtCC_DepInicial = new JFormattedTextField(); // Campo para Depósito Inicial
-        txtCC_DepInicial.setColumns(10); // Define a largura do campo
-
-        txtCC_Limite = new JFormattedTextField(); // Campo para Limite
-        txtCC_Limite.setColumns(10); // Define a largura do campo
+        txtCC_DepInicial = new JTextField(10); // Campo para Depósito Inicial
+        txtCC_Limite = new JTextField(10); // Define a largura do campo
+        
+        // Adiciona Listener formatarEntradaValor ao Depósito Inicial
+        txtCC_DepInicial.getDocument().addDocumentListener(new DocumentListener() {
+            public void changedUpdate(DocumentEvent e) { formatarEntradaValor(txtCC_DepInicial); }
+            public void removeUpdate(DocumentEvent e) { formatarEntradaValor(txtCC_DepInicial); }
+            public void insertUpdate(DocumentEvent e) { formatarEntradaValor(txtCC_DepInicial); }
+        });
+        
+        // Adiciona Listener formatarEntradaValor ao Limite
+        txtCC_Limite.getDocument().addDocumentListener(new DocumentListener() {
+            public void changedUpdate(DocumentEvent e) { formatarEntradaValor(txtCC_Limite); }
+            public void removeUpdate(DocumentEvent e) { formatarEntradaValor(txtCC_Limite); }
+            public void insertUpdate(DocumentEvent e) { formatarEntradaValor(txtCC_Limite); }
+        });
         
         pnl.add(new JLabel("Depósito Inicial (R$):")); // Label para Depósito Inicial
         pnl.add(txtCC_DepInicial); // Adiciona o campo ao painel
@@ -162,14 +200,30 @@ public class TelaVincularConta extends JFrame {
     // Retorna JPanel para Conta Investimento
     private JPanel criarPainelContaInvestimento() {
         JPanel pnl = new JPanel(new GridLayout(3, 2, 5, 5)); // Layout de 3 linhas, 2 colunas
-        txtCI_MontanteMinimo = new JFormattedTextField(); // Campo para Montante Mínimo
-        txtCI_MontanteMinimo.setColumns(10); // Define a largura do campo
+        txtCI_MontanteMinimo = new JTextField(10); // Campo para Montante Mínimo
+        txtCI_DepMinimo = new JTextField(10); // Campo para Depósito Mínimo
+        txtCI_DepInicial = new JTextField(10); // Campo para Depósito Inicial 
+        
+        // Adiciona Listener formatarEntradaValor ao Montante minimo
+        txtCI_MontanteMinimo.getDocument().addDocumentListener(new DocumentListener() {
+            public void changedUpdate(DocumentEvent e) { formatarEntradaValor(txtCI_MontanteMinimo); }
+            public void removeUpdate(DocumentEvent e) { formatarEntradaValor(txtCI_MontanteMinimo); }
+            public void insertUpdate(DocumentEvent e) { formatarEntradaValor(txtCI_MontanteMinimo); }
+        });
 
-        txtCI_DepMinimo = new JFormattedTextField(); // Campo para Depósito Mínimo
-        txtCI_DepMinimo.setColumns(10); // Define a largura do campo
+        // Adiciona Listener formatarEntradaValor ao Deposito minimo
+        txtCI_DepMinimo.getDocument().addDocumentListener(new DocumentListener() {
+            public void changedUpdate(DocumentEvent e) { formatarEntradaValor(txtCI_DepMinimo); }
+            public void removeUpdate(DocumentEvent e) { formatarEntradaValor(txtCI_DepMinimo); }
+            public void insertUpdate(DocumentEvent e) { formatarEntradaValor(txtCI_DepMinimo); }
+        });
 
-        txtCI_DepInicial = new JFormattedTextField(); // Campo para Depósito Inicial
-        txtCI_DepInicial.setColumns(10); // Define a largura do campo    
+        // Adiciona Listener formatarEntradaValor ao Deposito inicial
+        txtCI_DepInicial.getDocument().addDocumentListener(new DocumentListener() {
+            public void changedUpdate(DocumentEvent e) { formatarEntradaValor(txtCI_DepInicial); }
+            public void removeUpdate(DocumentEvent e) { formatarEntradaValor(txtCI_DepInicial); }
+            public void insertUpdate(DocumentEvent e) { formatarEntradaValor(txtCI_DepInicial); }
+        });
         
         pnl.add(new JLabel("Montante Mínimo (R$):")); // Label para Montante Mínimo
         pnl.add(txtCI_MontanteMinimo); // Adiciona o campo ao painel
@@ -187,9 +241,9 @@ public class TelaVincularConta extends JFrame {
         cardLayout.show(pnlCamposConta, tipo); // Exibe painel correspondente ao tipo
     }
     
-    // Converte o texto formatado do JFormattedTextField para um valor Double
+    // Converte o texto formatado do JTextField para um valor Double.
     // Retorna o valor como double ou lança NumberFormatException se inválido
-    private double getDoubleFromFormattedField(JFormattedTextField field) throws NumberFormatException {
+    private double getDoubleFromTextField(JTextField field) throws NumberFormatException {
         String text = field.getText(); // Obtém o texto do campo
 
         if (text == null || text.trim().isEmpty()) { // Verifica se o campo está vazio
@@ -198,10 +252,8 @@ public class TelaVincularConta extends JFrame {
 
         // Remove pontos de milhar (Ex: 1.000,00 -> 1000,00)
         String valorSemMilhar = text.replace(".", ""); 
-
         // Substitui a virgula por ponto (Ex: 1000,00 -> 1000.00)
         String valorFormatado = valorSemMilhar.replace(',', '.'); 
-
         // Remove quaisquer caracteres não numéricos restantes que não sejam o separador decimal
         String valorLimpo = valorFormatado.replaceAll("[^0-9.]", "");
 
@@ -236,8 +288,8 @@ public class TelaVincularConta extends JFrame {
             if ("Conta Corrente".equals(tipoConta)) {
                 // Converte os valores dos campos de texto formatados para double.
                 // Obtém os valores dos campos
-                double depInicial = getDoubleFromFormattedField(txtCC_DepInicial); 
-                double limite = getDoubleFromFormattedField(txtCC_Limite);
+                double depInicial = getDoubleFromTextField(txtCC_DepInicial);
+                double limite = getDoubleFromTextField(txtCC_Limite);
                 
                 ContaCorrente novaConta = new ContaCorrente(clienteSelecionado, depInicial, limite); // Cria e adiciona a Conta Corrente
                 gerenciadorContas.adicionar(novaConta); // Adiciona a conta recém-criada ao GerenciadorContas.
@@ -250,18 +302,18 @@ public class TelaVincularConta extends JFrame {
             } else if ("Conta Investimento".equals(tipoConta)) {
                 // Converte os valores dos campos de texto formatados para double.
                 // Obtém os valores dos campos
-                double montanteMinimo = getDoubleFromFormattedField(txtCI_MontanteMinimo);
-                double depMinimo = getDoubleFromFormattedField(txtCI_DepMinimo);
-                double depInicial = getDoubleFromFormattedField(txtCI_DepInicial);
+                double montanteMinimo = getDoubleFromTextField(txtCI_MontanteMinimo);
+                double depMinimo = getDoubleFromTextField(txtCI_DepMinimo);
+                double depInicialCI = getDoubleFromTextField(txtCI_DepInicial);
                 
                 // Cria a Conta Investimento
-                ContaInvestimento novaConta = new ContaInvestimento(clienteSelecionado, depInicial, montanteMinimo, depMinimo);
+                ContaInvestimento novaConta = new ContaInvestimento(clienteSelecionado, depInicialCI, montanteMinimo, depMinimo);
                 
                 // Verifica se o saldo é zero APESAR do depósito inicial > 0. Isso indica que o valor do depósito inicial não atingiu o Depósito Mínimo da Conta Investimento.
                 // Validação de Depósito Mínimo da Conta Investimento
-                if (novaConta.getSaldo() == 0 && depInicial > 0) {
+                if (novaConta.getSaldo() == 0 && depInicialCI > 0) {
                     // Exibe alerta de bloqueio por depósito inicial insuficiente.
-                     JOptionPane.showMessageDialog(this, "Criação de Conta Investimento CANCELADA. O Depósito Inicial de R$ " + String.format("%.2f", depInicial) + " é menor que o Depósito Mínimo de R$ " + String.format("%.2f", depMinimo) + ".", "Criação Bloqueada", JOptionPane.WARNING_MESSAGE);
+                     JOptionPane.showMessageDialog(this, "Criação de Conta Investimento CANCELADA. O Depósito Inicial de R$ " + String.format("%.2f", depInicialCI) + " é menor que o Depósito Mínimo de R$ " + String.format("%.2f", depMinimo) + ".", "Criação Bloqueada", JOptionPane.WARNING_MESSAGE);
                 } else {
                     // Adiciona a conta (se a criação foi bem-sucedida ou se o depósito inicial foi 0).
                     gerenciadorContas.adicionar(novaConta); 
@@ -278,14 +330,14 @@ public class TelaVincularConta extends JFrame {
     
     // Limpa os campos de input específicos da Conta Corrente.
     private void limparCamposCC() {
-        txtCC_DepInicial.setValue(null); // Limpa o campo de Depósito Inicial
-        txtCC_Limite.setValue(null); // Limpa o campo de Limite
+        txtCC_DepInicial.setText(""); // Limpa o campo de Depósito Inicial
+        txtCC_Limite.setText(""); // Limpa o campo de Limite
     }
     
     // Limpa os campos de input específicos da Conta Investimento.
     private void limparCamposCI() {
-        txtCI_MontanteMinimo.setValue(null); // Limpa o Montante Mínimo
-        txtCI_DepMinimo.setValue(null); // Limpa o Depósito Mínimo
-        txtCI_DepInicial.setValue(null); // Limpa o Depósito Inicial
+        txtCI_MontanteMinimo.setText(""); // Limpa o Montante Mínimo
+        txtCI_DepMinimo.setText(""); // Limpa o Depósito Mínimo
+        txtCI_DepInicial.setText(""); // Limpa o Depósito Inicial
     }
 }

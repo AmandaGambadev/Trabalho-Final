@@ -5,13 +5,12 @@ import banco.modelo.Cliente;
 import banco.negocio.GerenciadorContas;
 import banco.negocio.GerenciadorClientes;
 
-import java.text.DecimalFormat;
-import javax.swing.JFormattedTextField;
 import javax.swing.text.MaskFormatter;
-import javax.swing.text.NumberFormatter;
+import javax.swing.event.DocumentListener;
+import javax.swing.event.DocumentEvent;
+import java.text.DecimalFormat;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
-import java.awt.GridLayout;
 import javax.swing.*;
 
 // Tela de interface gráfica (JFrame) para realizar operações em uma conta bancária, selecionada por CPF do cliente.
@@ -28,8 +27,9 @@ public class TelaOperacoes extends JFrame {
     private JLabel lblInfoConta; // Exibe as informações da conta encontrada
     
     // Componentes de Operação
-    private JFormattedTextField txtValorOperacao; // Campo de texto formatado para entrada do valor da operação
+    private JTextField txtValorOperacao; // Campo de texto para entrada do valor da operação
     private JButton btnSaque, btnDeposito, btnVerSaldo, btnRemunera; // Botões para as operações bancárias
+    private boolean isUpdating = false; // Flag para evitar loops de DocumentListener
 
     
     // Construtor da tela de operações.
@@ -59,24 +59,12 @@ public class TelaOperacoes extends JFrame {
             txtCpfBusca = new JFormattedTextField(cpfMask); // Campo de texto formatado para CPF
             txtCpfBusca.setColumns(15); // Define a largura do campo
 
-            // Formatação de Valor (Decimal: #,##0.00)
-            DecimalFormat decimalFormat = new DecimalFormat("#,##0.00"); // Define o formato decimal
-            decimalFormat.setMinimumFractionDigits(2); // Garante 2 casas decimais
-            decimalFormat.setGroupingUsed(false); // Desabilita o ponto de milhar para simplificar a leitura
-
-            NumberFormatter valueFormatter = new NumberFormatter(decimalFormat); // Formatação numérica
-            valueFormatter.setValueClass(Double.class); // Define o tipo de valor como Double
-            valueFormatter.setAllowsInvalid(false); // Não permite valores inválidos
-            valueFormatter.setOverwriteMode(false); // Não substitui caracteres durante a digitação
-
-            txtValorOperacao = new JFormattedTextField(valueFormatter); // Campo de texto formatado para valor
-            txtValorOperacao.setColumns(10); // Define a largura do campo
-
+            txtValorOperacao = new JTextField(10);
         } catch (java.text.ParseException e) {
             e.printStackTrace();
             // Fallback para campos simples em caso de erro na máscara/formatação
             txtCpfBusca = new JFormattedTextField();
-            txtValorOperacao = new JFormattedTextField();
+            txtValorOperacao = new JTextField(10);
         }
 
         // Inicialização de JButtons
@@ -85,6 +73,13 @@ public class TelaOperacoes extends JFrame {
         btnDeposito = new JButton("Depósito"); // Botão de depósito
         btnVerSaldo = new JButton("Ver Saldo"); // Botão de ver saldo
         btnRemunera = new JButton("Remunera"); // Botão de remuneração
+        
+        // Adiciona o DocumentListener ao campo de valor para formatar dígito por dígito
+        txtValorOperacao.getDocument().addDocumentListener(new DocumentListener() {
+            public void changedUpdate(DocumentEvent e) { formatarEntradaValor(); }
+            public void removeUpdate(DocumentEvent e) { formatarEntradaValor(); }
+            public void insertUpdate(DocumentEvent e) { formatarEntradaValor(); }
+        });
 
         // Montagem do Layout e Listeners
         // --- Painel de Busca (Norte) ---
@@ -124,6 +119,7 @@ public class TelaOperacoes extends JFrame {
         pnlOperacoesContainer.add(pnlAcaoPrincipal, BorderLayout.NORTH); // Adiciona o painel de ações principais na parte superior
         pnlOperacoesContainer.add(pnlOutrasOperacoes, BorderLayout.CENTER); // Adiciona o painel de outras operações na parte central
         add(pnlOperacoesContainer, BorderLayout.SOUTH); // Adiciona o container ao sul da janela
+        desabilitarOperacoes();
     }
     
     
@@ -183,6 +179,61 @@ public class TelaOperacoes extends JFrame {
         }
     }
     
+    // Formata o valor digitado no modo centavos para casas maiores
+    private void formatarEntradaValor() {
+        if (isUpdating) return; // Bloqueia se a atualização for interna
+        
+        // Limita o número máximo de dígitos para 14 (para evitar o estouro de Long)
+        final int MAX_DIGITOS = 14;
+        
+        // Remove tudo que não for dígito
+        String texto = txtValorOperacao.getText().replaceAll("[^0-9]", "");
+
+        // Lógica de Limitação de Input
+        if (texto.length() > MAX_DIGITOS) {
+            // Trunca o texto para os 14 dígitos mais recentes
+            texto = texto.substring(0, MAX_DIGITOS);
+        }
+        
+        // Lógica de limpeza e validação
+        if (texto.isEmpty()) {
+            // Lógica para limpar o campo
+            if (!txtValorOperacao.getText().isEmpty()) {
+                isUpdating = true; // Ativa flag antes de mudar o texto
+                txtValorOperacao.setText("");
+                isUpdating = false;
+            }
+            return;
+        }
+
+        //Conversão e formatação segura devido a limitação
+        try {
+            // Pega o valor como um número inteiro (centavos)
+            long valorInteiro = Long.parseLong(texto);
+            // Converte para decimal (o formato 0.00)
+            double valorDecimal = valorInteiro / 100.0;
+
+            // Formata o valor para a exibição no campo
+            DecimalFormat df = new DecimalFormat("#,##0.00");
+            String valorFormatado = df.format(valorDecimal);
+
+            // Atualiza o campo com o valor formatado
+            if (!txtValorOperacao.getText().equals(valorFormatado)) {
+                // Liga o flag antes da atualização
+                isUpdating = true;
+                
+                SwingUtilities.invokeLater(() -> {
+                    txtValorOperacao.setText(valorFormatado);
+                    isUpdating = false;
+                });
+            }
+        } catch (NumberFormatException e) {
+            // Caso a conversão para long falhe mesmo com a limitação (improvável, mas seguro)
+            isUpdating = true;
+            txtValorOperacao.setText("");
+            isUpdating = false;
+        }
+    }
     
     // Converte o valor do campo de operação para Double.
     // Retorna o valor convertido ou lança NumberFormatException se inválido.
@@ -194,14 +245,14 @@ public class TelaOperacoes extends JFrame {
         }
 
         // Limpeza e conversão: troca vírgula por ponto e remove outros caracteres
-        String valorStrLimpo = text.replace(',', '.').replaceAll("[^0-9.]", ""); // Remove caracteres não numéricos, exceto ponto
+        String valorLimpo = text.replace(',', '.').replaceAll("[^0-9.]", ""); // Remove caracteres não numéricos, exceto ponto
 
-        if (valorStrLimpo.isEmpty()) { // Verifica se sobrou algo após a limpeza
+        if (valorLimpo.isEmpty()) { // Verifica se sobrou algo após a limpeza
             return 0.0; // Retorna 0.0 se estiver vazio
         }
 
         // Tenta fazer o parse para Double
-        return Double.parseDouble(valorStrLimpo);
+        return Double.parseDouble(valorLimpo);
     }
     
     
@@ -220,11 +271,11 @@ public class TelaOperacoes extends JFrame {
                 // Falha: O erro é reportado pelo modelo (ContaCorrente/ContaInvestimento)
             }
 
-            txtValorOperacao.setValue(null); // Limpa o campo após a operação
+            txtValorOperacao.setText(""); // Limpa o campo após a operação
 
         } catch (NumberFormatException ex) { // Trata valor inválido
             JOptionPane.showMessageDialog(this, "Valor inválido para saque.", "Erro", JOptionPane.ERROR_MESSAGE);
-            txtValorOperacao.setValue(null); // Limpa o campo 
+            txtValorOperacao.setText(""); // Limpa o campo 
         }
     }
     
@@ -240,11 +291,11 @@ public class TelaOperacoes extends JFrame {
                 verSaldo(); // Exibe o novo saldo
             }
 
-            txtValorOperacao.setValue(null); // Limpa o campo após a operação
+            txtValorOperacao.setText(""); // Limpa o campo após a operação
 
         } catch (NumberFormatException ex) { // Trata valor inválido
             JOptionPane.showMessageDialog(this, "Valor inválido para depósito.", "Erro", JOptionPane.ERROR_MESSAGE);
-            txtValorOperacao.setValue(null); // Limpa o campo
+            txtValorOperacao.setText(""); // Limpa o campo
         }
     }
 
