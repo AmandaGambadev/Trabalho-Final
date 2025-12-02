@@ -2,78 +2,60 @@ package banco.modelo;
 
 import javax.swing.JOptionPane;
 
-/**
- * Classe abstrata base que implementa as funcionalidades comuns de todas as contas bancárias.
- * Implementa a interface ContaI.
- */
+// Classe abstrata base que implementa as funcionalidades comuns de todas as contas bancárias.
+// Implementa a interface ContaI, definindo a estrutura básica.
 public abstract class Conta implements ContaI {
     
-    private static int PROXIMO_NUMERO = 1000; // Gerador sequencial de número de conta
+    private static int PROXIMO_NUMERO = 1000; // Contador estático para gerar o número da conta sequencialmente.
     
     private Cliente dono;
     private int numero;
-    protected double saldo; // Protegido para acesso direto em subclasses (ContaCorrente, ContaInvestimento)
+    protected double saldo; // O saldo é protegido para que subclasses possam acessá-lo diretamente (ex: ContaCorrente).
 
-    /**
-     * Construtor da Conta. Inicializa o dono, o número e o saldo.
-     * @param dono O objeto Cliente que é o titular da conta.
-     * @param depositoInicial O valor inicial do saldo da conta.
-     */
+    // Construtor da Conta. Inicializa o dono, o número e o saldo.
     public Conta(Cliente dono, double depositoInicial) {
         this.dono = dono;
-        this.numero = PROXIMO_NUMERO++; // Atribui o próximo número e incrementa
-        this.saldo = depositoInicial; // Inicializa o saldo
+        this.numero = PROXIMO_NUMERO++; // Atribui o número sequencial e incrementa o contador.
+        this.saldo = depositoInicial; // Define o saldo inicial.
     }
 
     // --- Implementação dos Getters da interface ContaI ---
-    @Override
     public Cliente getDono() { return dono; }
 
-    @Override
     public int getNumero() { return numero; }
 
-    @Override
     public double getSaldo() { return saldo; }
 
-    /**
-     * Implementa a lógica de depósito.
-     * @param valor O valor a ser depositado.
-     * @return true se o valor for positivo e o depósito for realizado, false caso contrário.
-     */
+    // Implementa a lógica de depósito, checando se o valor é positivo.
     @Override
     public boolean deposita(double valor) {
+        // Checamos se o valor do depósito é positivo.
         if (valor > 0) {
-            this.saldo += valor; // Adiciona o valor ao saldo
+            this.saldo += valor; // Adiciona o valor ao saldo atual.
             return true;
         } else {
-            // Exibe mensagem de erro se o valor for inválido
+            // Se for zero ou negativo, mostra um erro.
             JOptionPane.showMessageDialog(null, "O valor do depósito deve ser positivo.", "Erro de Depósito", JOptionPane.ERROR_MESSAGE);
             return false;
         }
     }
 
-   /**
-    * Lógica de validação básica de saque (valor positivo).
-    * Subclasses (ContaCorrente, ContaInvestimento) devem sobrescrever este método
-    * para adicionar regras específicas (limite, montante mínimo).
-    * @param valor O valor a ser sacado.
-    * @return true se o valor for positivo, false caso contrário.
-    */
+    // Lógica de validação básica de saque: checa apenas se o valor é positivo.
+    // As regras de saldo/limite/montante mínimo são delegadas às subclasses.
     @Override
     public boolean saca(double valor) {
-        // Regra: valor sacado deve ser positivo.
+        // Verifica se o valor a ser sacado é maior que zero.
         if (valor > 0) {
-            return true; // Permite que a subclasse continue a lógica de saque
+            return true; // OK, permite que a subclasse continue com as validações específicas.
         } else {
-            // Exibe mensagem de erro se o valor for inválido
+            // Se for zero ou negativo, mostra um erro.
             JOptionPane.showMessageDialog(null, "O valor do saque deve ser positivo.", "Erro de Saque", JOptionPane.ERROR_MESSAGE);
             return false;
         }
     }
     
-    /**
-     * Método abstrato que força as subclasses a implementarem a lógica de remuneração.
-     */
+    // Método abstrato que obriga as classes filhas (ContaCorrente, ContaInvestimento)
+    // a implementarem a lógica de remuneração de forma específica.
     @Override
     public abstract void remunera();
 }
